@@ -1,0 +1,15 @@
+artifact_uri: file:///D:/Users/quand/2A202600757-DoanMinhQuang-Day21/mlruns/0/35a997a29088464ca60d2dcc8fd07938/artifacts
+end_time: 1782396006752
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 35a997a29088464ca60d2dcc8fd07938
+run_name: abundant-bug-677
+run_uuid: 35a997a29088464ca60d2dcc8fd07938
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1782396001621
+status: 3
+tags: []
+user_id: quand

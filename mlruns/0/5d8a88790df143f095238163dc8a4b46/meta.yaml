@@ -1,0 +1,15 @@
+artifact_uri: file:///D:/Users/quand/2A202600757-DoanMinhQuang-Day21/mlruns/0/5d8a88790df143f095238163dc8a4b46/artifacts
+end_time: 1782391482689
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 5d8a88790df143f095238163dc8a4b46
+run_name: puzzled-cat-345
+run_uuid: 5d8a88790df143f095238163dc8a4b46
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1782391475158
+status: 3
+tags: []
+user_id: quand

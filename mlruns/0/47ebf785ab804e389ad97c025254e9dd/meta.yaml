@@ -1,0 +1,15 @@
+artifact_uri: file:///D:/Users/quand/2A202600757-DoanMinhQuang-Day21/mlruns/0/47ebf785ab804e389ad97c025254e9dd/artifacts
+end_time: 1782391561027
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 47ebf785ab804e389ad97c025254e9dd
+run_name: invincible-lynx-462
+run_uuid: 47ebf785ab804e389ad97c025254e9dd
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1782391551909
+status: 3
+tags: []
+user_id: quand

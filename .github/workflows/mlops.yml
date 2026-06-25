@@ -2,7 +2,7 @@ name: MLOps Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - 'data/**.dvc'
       - 'src/**.py'
@@ -32,7 +32,7 @@ jobs:
 
       - name: Run unit tests
         # TODO 1: Viet lenh de chay pytest tren thu muc tests/ voi co -v
-        run: # <dien lenh o day>
+        run: pytest tests/ -v
 
 
   # ---------------------------------------------------------------------------
@@ -59,18 +59,21 @@ jobs:
 
       - name: Authenticate to Cloud Storage
         # TODO 2: Ghi noi dung credentials ra file tam va set bien moi truong xac thuc.
-        # GCP:   echo '${{ secrets.CLOUD_CREDENTIALS }}' > /tmp/sa-key.json
-        #        echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json" >> $GITHUB_ENV
-        # AWS:   echo "AWS_ACCESS_KEY_ID=..." >> $GITHUB_ENV  (lay tu secrets)
-        #        echo "AWS_SECRET_ACCESS_KEY=..." >> $GITHUB_ENV
-        # Azure: echo "AZURE_STORAGE_CONNECTION_STRING=..." >> $GITHUB_ENV
+        # Them tracking MLflow tu xa voi DagsHub neu co secrets (Bonus 1)
         run: |
-          # <dien code o day>
+          echo '${{ secrets.CLOUD_CREDENTIALS }}' > /tmp/sa-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json" >> $GITHUB_ENV
+          if [ ! -z "${{ secrets.MLFLOW_TRACKING_USERNAME }}" ]; then
+            echo "MLFLOW_TRACKING_URI=https://dagshub.com/${{ github.repository }}.mlflow" >> $GITHUB_ENV
+            echo "MLFLOW_TRACKING_USERNAME=${{ secrets.MLFLOW_TRACKING_USERNAME }}" >> $GITHUB_ENV
+            echo "MLFLOW_TRACKING_PASSWORD=${{ secrets.MLFLOW_TRACKING_PASSWORD }}" >> $GITHUB_ENV
+          fi
 
       - name: Pull data with DVC
         # TODO 3: Pull cac file du lieu can thiet tu cloud storage bang lenh dvc pull.
-        #         Chi pull train_phase1.csv va eval.csv (khong can train_phase2.csv).
-        run: # <dien lenh o day>
+        run: |
+          dvc remote modify myremote credentialpath /tmp/sa-key.json
+          dvc pull data/train_phase1.csv.dvc data/eval.csv.dvc
 
       - name: Train model
         run: python src/train.py
@@ -78,62 +81,99 @@ jobs:
       - name: Read metrics
         id: read_metrics
         # TODO 4: Doc gia tri "accuracy" tu outputs/metrics.json bang Python inline.
-        #         Set ket qua thanh output "accuracy" de job deploy co the doc.
-        #
-        # Goi y:
-        #   ACC=$(python -c "import json; d=json.load(open('outputs/metrics.json')); print(d['accuracy'])")
-        #   echo "accuracy=$ACC" >> $GITHUB_OUTPUT
         run: |
-          # <dien code o day>
+          ACC=$(python -c "import json; d=json.load(open('outputs/metrics.json')); print(d['accuracy'])")
+          echo "accuracy=$ACC" >> $GITHUB_OUTPUT
 
       - name: Upload model to Cloud Storage
-        # TODO 5: Su dung cloud SDK de upload models/model.pkl len
-        #         <bucket>/models/latest/model.pkl.
-        #         Ten bucket lay tu secret CLOUD_BUCKET.
+        # TODO 5: Su dung cloud SDK de upload models/model.pkl len GCS
         run: |
           python - <<'EOF'
-          # <dien code Python o day>
+          import os
+          from google.cloud import storage
+          bucket_name = "${{ secrets.CLOUD_BUCKET }}"
+          client = storage.Client()
+          bucket = client.bucket(bucket_name)
+          blob = bucket.blob("models/latest/model.pkl")
+          blob.upload_from_filename("models/model.pkl")
+          print("Model uploaded to GCS successfully.")
           EOF
 
       - name: Save metrics as artifact
+        # Bonus 3: Ghi vao report.txt va upload metric cung report.txt
         uses: actions/upload-artifact@v4
         with:
           name: metrics
-          path: outputs/metrics.json
+          path: |
+            outputs/metrics.json
+            outputs/report.txt
 
 
   # ---------------------------------------------------------------------------
   # JOB 3 - EVAL
-  # Kiem tra nguong chat luong (accuracy >= 0.70).
-  # Pipeline dung lai o day neu mo hinh chua dat yeu cau.
-  # Chi chay khi Job 2 (Train) hoan thanh thanh cong.
+  # Kiem tra nguong chat luong (accuracy >= 0.70) va so sanh hieu suat cu (Bonus 4).
   # ---------------------------------------------------------------------------
   eval:
     name: Eval
     needs: train
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Authenticate to Cloud Storage
+        run: |
+          echo '${{ secrets.CLOUD_CREDENTIALS }}' > /tmp/sa-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json" >> $GITHUB_ENV
+
+      - name: Install google-cloud-storage
+        run: pip install google-cloud-storage
 
       - name: Check eval gate
         # TODO 6: Doc accuracy tu output cua job train.
-        #         Neu accuracy < 0.70, ket thuc voi loi ro rang.
-        #         Neu dat nguong, in thong bao va tiep tuc.
-        #
-        # Goi y:
-        #   acc = float("${{ needs.train.outputs.accuracy }}")
-        #   if acc < 0.70:
-        #       raise SystemExit(f"FAILED: accuracy {acc:.4f} < 0.70. Huy deploy.")
-        #   print("PASSED: dang trien khai model.")
+        # So sanh accuracy moi va cu (Bonus 4), chi cho phep deploy khi acc moi >= acc cu
         run: |
           python - <<'EOF'
-          # <dien code Python o day>
+          import os
+          import json
+          from google.cloud import storage
+          
+          new_acc = float("${{ needs.train.outputs.accuracy }}")
+          if new_acc < 0.70:
+              raise SystemExit(f"FAILED: accuracy {new_acc:.4f} < 0.70. Huy deploy.")
+          print(f"PASSED: Threshold check (accuracy {new_acc:.4f} >= 0.70)")
+          
+          # Bonus 4: Hoàn Trả Về Phiên Bản Trước
+          client = storage.Client()
+          bucket = client.bucket("${{ secrets.CLOUD_BUCKET }}")
+          blob = bucket.blob("metrics/latest/metrics.json")
+          
+          old_acc = 0.0
+          try:
+              old_metrics_str = blob.download_as_text()
+              old_metrics = json.loads(old_metrics_str)
+              old_acc = float(old_metrics.get("accuracy", 0.0))
+              print(f"Previous run accuracy: {old_acc:.4f}")
+          except Exception as e:
+              print("No previous metrics found or failed to read them. Setting old accuracy to 0.0.")
+          
+          if new_acc < old_acc:
+              raise SystemExit(f"FAILED: accuracy decreased from {old_acc:.4f} to {new_acc:.4f}. Huy deploy.")
+          print(f"PASSED: Accuracy safety check ({new_acc:.4f} >= {old_acc:.4f})")
+          
+          # Luu reference metric moi len GCS
+          new_metrics = {"accuracy": new_acc}
+          blob.upload_from_string(json.dumps(new_metrics))
+          print("Metrics reference updated on GCS.")
           EOF
 
 
   # ---------------------------------------------------------------------------
   # JOB 4 - DEPLOY
   # Trien khai len VM qua SSH.
-  # Chi chay khi Job 3 (Eval) hoan thanh thanh cong.
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy
@@ -149,11 +189,7 @@ jobs:
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
             # TODO 7: Restart service mlops-serve tren VM.
+            sudo systemctl restart mlops-serve
             # TODO 8: Cho server san sang roi goi curl /health de xac nhan.
-            #         Neu health check that bai sau nhieu lan thu, thoat voi exit 1.
-            #
-            # Goi y:
-            #   sudo systemctl restart mlops-serve
-            #   sleep 5
-            #   curl -sf http://localhost:8000/health && echo "Health check passed." || exit 1
-            # <dien lenh bash o day>
+            sleep 5
+            curl -sf http://localhost:8000/health && echo "Health check passed." || exit 1
